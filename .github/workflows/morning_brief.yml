@@ -2,8 +2,8 @@ name: Morning Brief
 
 on:
   schedule:
-    - cron: "0 7 * * 1-4"
-    - cron: "0 16 * * 5"
+    # Ma t/m vr: 08:00 CET (= 07:00 UTC)
+    - cron: "0 7 * * 1-5"
   workflow_dispatch:
 
 jobs:

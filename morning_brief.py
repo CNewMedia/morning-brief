@@ -92,6 +92,7 @@ def get_calendar_events():
 
     events = events_result.get("items", [])
     formatted = []
+    busy_slots = []  # voor Claude om rekening mee te houden
 
     for event in events:
         start = event["start"].get("dateTime", event["start"].get("date"))
@@ -293,6 +294,21 @@ def block_tasks_in_calendar(top3_tasks):
     creds = _load_google_creds()
     service = build("calendar", "v3", credentials=creds)
     today_str = get_target_date().isoformat()
+
+    # Check of er al 🎯 events staan voor die dag
+    start_of_day = f"{today_str}T00:00:00Z"
+    end_of_day = f"{today_str}T23:59:59Z"
+    existing = service.events().list(
+        calendarId="primary",
+        timeMin=start_of_day,
+        timeMax=end_of_day,
+        q="🎯",
+        singleEvents=True,
+    ).execute()
+
+    if existing.get("items"):
+        print(f"   ℹ️  Al {len(existing['items'])} 🎯 events gevonden voor {today_str} — blocking overgeslagen.")
+        return
 
     for i, task in enumerate(top3_tasks, 1):
         try:
