@@ -64,7 +64,9 @@
 ---
 
 ## 🎯 Kwartaaldoelen (bij te werken)
-
+git add context.md
+git commit -m "Kwartaaldoelen toegevoegd"
+git push
 *Vul hier je 3 belangrijkste doelen in voor dit kwartaal:*
 
 1. 
