@@ -13,12 +13,17 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          submodules: false
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install dependencies
         run: pip install anthropic requests google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client python-dotenv
+
       - name: Run Morning Brief
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
