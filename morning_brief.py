@@ -18,6 +18,13 @@ import pickle
 
 load_dotenv()
 
+# Op vrijdag kijken we naar maandag ipv vandaag
+def get_target_date():
+    today = datetime.date.today()
+    if today.weekday() == 4:  # vrijdag = 4
+        return today + datetime.timedelta(days=3)  # maandag
+    return today
+
 CLICKUP_API_KEY = os.getenv("CLICKUP_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CLICKUP_TEAM_ID = os.getenv("CLICKUP_TEAM_ID")  # workspace ID
@@ -30,30 +37,42 @@ SCOPES = [
 ]
 
 
+def _load_google_creds():
+    """Laad Google credentials: uit env var (GitHub Actions) of token.pickle (lokaal)."""
+    creds = None
+
+    # GitHub Actions: token als base64 in env var
+    token_b64 = os.getenv("GOOGLE_TOKEN_B64")
+    if token_b64:
+        token_bytes = base64.b64decode(token_b64)
+        creds = pickle.loads(token_bytes)
+    elif os.path.exists("token.pickle"):
+        with open("token.pickle", "rb") as f:
+            creds = pickle.load(f)
+
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # Sla vernieuwde token op (lokaal)
+        if not token_b64 and os.path.exists("token.pickle"):
+            with open("token.pickle", "wb") as f:
+                pickle.dump(creds, f)
+
+    if not creds:
+        raise RuntimeError("Geen Google credentials gevonden. Zie README voor setup.")
+
+    return creds
+
+
 # ── Google Calendar ──────────────────────────────────────────────────────────
 
 def get_calendar_events():
     """Haal events op van vandaag uit Google Calendar."""
-    creds = None
-
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open("token.pickle", "wb") as token:
-            pickle.dump(creds, token)
-
+    creds = _load_google_creds()
     service = build("calendar", "v3", credentials=creds)
 
-    now = datetime.datetime.utcnow()
-    start_of_day = now.replace(hour=0, minute=0, second=0).isoformat() + "Z"
-    end_of_day = now.replace(hour=23, minute=59, second=59).isoformat() + "Z"
+    target = get_target_date()
+    start_of_day = datetime.datetime.combine(target, datetime.time.min).isoformat() + "Z"
+    end_of_day = datetime.datetime.combine(target, datetime.time.max).isoformat() + "Z"
 
     events_result = service.events().list(
         calendarId="primary",
@@ -143,15 +162,7 @@ def get_clickup_tasks():
 
 def get_unanswered_emails():
     """Haal mails op waar jij direct op moet reageren (To:, niet CC, nog niet geantwoord)."""
-    creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-
+    creds = _load_google_creds()
     gmail = build("gmail", "v1", credentials=creds)
 
     # Zoek: direct aan jou gericht, niet van automatische senders, afgelopen 7 dagen
@@ -204,7 +215,10 @@ def generate_morning_brief(events, tasks, emails):
     """Stuur alles naar Claude en krijg een dagplan + top 3 JSON terug."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    today = datetime.date.today().strftime("%A %d %B %Y")
+    target = get_target_date()
+    is_friday_preview = datetime.date.today().weekday() == 4
+    today = target.strftime("%A %d %B %Y")
+    preview_note = " (PREVIEW VOOR MAANDAG — brief gemaakt op vrijdagavond)" if is_friday_preview else ""
     events_text = "\n".join(events) if events else "Geen meetings vandaag."
     tasks_text = "\n".join(tasks) if tasks else "Geen open taken gevonden."
     emails_text = "\n".join(emails) if emails else "Geen openstaande mails."
@@ -212,7 +226,7 @@ def generate_morning_brief(events, tasks, emails):
     prompt = (
         "Je bent een persoonlijke chief of staff voor een drukke marketingondernemer.\n"
         "Hij wil elke ochtend in 5 minuten weten wat hij die dag moet doen, in welke volgorde, en wanneer.\n\n"
-        f"Vandaag is het {today}.\n\n"
+        f"Vandaag is het {today}{preview_note}.\n\n"
         f"AGENDA VANDAAG:\n{events_text}\n\n"
         f"OPEN TAKEN IN CLICKUP:\n{tasks_text}\n\n"
         f"MAILS DIE ACTIE VEREISEN:\n{emails_text}\n\n"
@@ -266,18 +280,9 @@ def block_tasks_in_calendar(top3_tasks):
         print("   ℹ️  Geen taken om te blokkeren.")
         return
 
-    # Hergebruik credentials (token.pickle bestaat al na get_calendar_events)
-    creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-
+    creds = _load_google_creds()
     service = build("calendar", "v3", credentials=creds)
-    today_str = datetime.date.today().isoformat()
+    today_str = get_target_date().isoformat()
 
     for i, task in enumerate(top3_tasks, 1):
         try:
@@ -352,17 +357,31 @@ def main():
     print("=" * 60)
 
     # Sla op als bestand
-    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    target = get_target_date()
+    today_str = target.strftime("%Y-%m-%d")
     filename = f"brief_{today_str}.txt"
     with open(filename, "w") as f:
         f.write(display_brief)
     print(f"\n💾 Opgeslagen als {filename}")
 
     # Calendar blocking
+    import sys, traceback
     print("\n📅 Top 3 taken blokkeren in Google Calendar...")
-    top3 = parse_top3(brief)
-    block_tasks_in_calendar(top3)
+    sys.stdout.flush()
+    try:
+        top3 = parse_top3(brief)
+        print(f"   TOP3 geparsed: {len(top3)} taken")
+        sys.stdout.flush()
+        if top3:
+            block_tasks_in_calendar(top3)
+        else:
+            print("   ℹ️  Geen TOP3_JSON gevonden in brief — calendar blocking overgeslagen.")
+    except Exception as e:
+        print(f"   ⚠️  Calendar blocking fout: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
     print()
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
