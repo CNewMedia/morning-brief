@@ -18,6 +18,14 @@ import pickle
 
 load_dotenv()
 
+def load_context():
+    """Laad de wekelijkse context voor Claude."""
+    for path in ["context.md", "/home/runner/work/morning-brief/morning-brief/context.md"]:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read()
+    return ""
+
 # Op vrijdag kijken we naar maandag ipv vandaag
 def get_target_date():
     today = datetime.date.today()
@@ -222,12 +230,14 @@ def generate_morning_brief(events, tasks, emails):
     events_text = "\n".join(events) if events else "Geen meetings vandaag."
     tasks_text = "\n".join(tasks) if tasks else "Geen open taken gevonden."
     emails_text = "\n".join(emails) if emails else "Geen openstaande mails."
+    context_text = load_context() or "Geen context beschikbaar."
 
     prompt = (
         "Je bent een persoonlijke chief of staff voor een drukke marketingondernemer.\n"
         "Hij wil elke ochtend in 5 minuten weten wat hij die dag moet doen, in welke volgorde, en wanneer.\n\n"
         f"Vandaag is het {today}{preview_note}.\n\n"
         f"AGENDA VANDAAG:\n{events_text}\n\n"
+        f"PERSOONLIJKE CONTEXT:\n{context_text}\n\n"
         f"OPEN TAKEN IN CLICKUP:\n{tasks_text}\n\n"
         f"MAILS DIE ACTIE VEREISEN:\n{emails_text}\n\n"
         "Maak een helder dagplan met:\n"
