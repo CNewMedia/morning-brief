@@ -2,9 +2,10 @@ name: Morning Brief
 
 on:
   schedule:
-    # Ma t/m vr: 08:00 CET (= 07:00 UTC)
     - cron: "0 7 * * 1-5"
   workflow_dispatch:
+  repository_dispatch:
+    types: [calendar-update]
 
 jobs:
   morning-brief:
