@@ -129,9 +129,13 @@ def get_clickup_tasks():
     else:
         team_id = CLICKUP_TEAM_ID
 
+    # Haal user ID op
+    me_resp = requests.get("https://api.clickup.com/api/v2/user", headers=headers)
+    user_id = me_resp.json().get("user", {}).get("id", "")
+
     # Haal taken op via /team/{id}/task
     params = {
-        "assignees[]": "me",  # alleen jouw taken
+        "assignees[]": user_id,
         "statuses[]": ["Open", "in progress", "to do"],
         "include_closed": False,
         "subtasks": True,
@@ -194,7 +198,7 @@ def get_unanswered_emails():
 
     for msg in messages[:15]:
         detail = gmail.users().messages().get(
-            userId="me", messageId=msg["id"],
+            userId="me", id=msg["id"],
             format="metadata",
             metadataHeaders=["From", "Subject", "To", "Cc", "Date"]
         ).execute()
